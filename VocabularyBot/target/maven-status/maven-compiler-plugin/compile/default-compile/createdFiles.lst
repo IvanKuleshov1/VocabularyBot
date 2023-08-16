@@ -1,0 +1,9 @@
+com\example\vocabularybot\model\WordsRepository.class
+com\example\vocabularybot\service\TelegramBot.class
+com\example\vocabularybot\model\User.class
+com\example\vocabularybot\service\Pair.class
+com\example\vocabularybot\model\UserRepository.class
+com\example\vocabularybot\config\BotConfig.class
+com\example\vocabularybot\model\Words.class
+com\example\vocabularybot\VocabularyBotApplication.class
+com\example\vocabularybot\config\BotInitializer.class
