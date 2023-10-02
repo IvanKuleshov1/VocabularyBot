@@ -3,6 +3,7 @@ package com.example.vocabularybot.model;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
+import lombok.Getter;
 
 @Entity(name = "users_data_table")
 public class User {
@@ -15,30 +16,30 @@ public class User {
     private String userName;
 //    private TimeStamp registeredAt;
     private Integer recentWord;
+    @Getter
     @Column(name = "right_answers")
     private Integer rightAnswers;
+    @Getter
     @Column(name = "answers")
     private Integer answers;
+    @Getter
     private int wrongworditer;
+    private int favoriteworditer;
 
-    public int getWrongworditer() {
-        return wrongworditer;
+    public void setFavoriteworditer(int favoriteworditer) {
+        this.favoriteworditer = favoriteworditer;
+    }
+
+    public int getFavoriteworditer() {
+        return favoriteworditer;
     }
 
     public void setWrongworditer(int wrongwordister) {
         this.wrongworditer = wrongwordister;
     }
 
-    public Integer getAnswers() {
-        return answers;
-    }
-
     public void setAnswers(Integer answers) {
         this.answers = answers;
-    }
-
-    public Integer getRightAnswers() {
-        return rightAnswers;
     }
 
     public void setRightAnswers(Integer rightAnswers) {

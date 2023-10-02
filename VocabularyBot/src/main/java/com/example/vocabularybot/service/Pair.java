@@ -1,6 +1,7 @@
 package com.example.vocabularybot.service;
 
-public class Pair<Long, String> {
+public class
+Pair<Long, String> {
     private final Long key;
     private final String value;
 

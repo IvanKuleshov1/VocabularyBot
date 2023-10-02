@@ -1,43 +1,41 @@
 package com.example.vocabularybot.service;
 
-import com.example.vocabularybot.model.User;
-import com.example.vocabularybot.model.UserRepository;
-import com.example.vocabularybot.model.Words;
-import com.example.vocabularybot.model.WordsRepository;
-import com.vdurmont.emoji.EmojiParser;
-
 import com.example.vocabularybot.config.BotConfig;
+import com.example.vocabularybot.model.*;
+import com.vdurmont.emoji.EmojiParser;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.collections4.BidiMap;
-import org.apache.commons.collections4.bidimap.DualHashBidiMap;
+import org.hibernate.query.Query;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.hibernate.cfg.Configuration;
+import org.hibernate.SessionFactory;
+import org.hibernate.Session;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.ParseMode;
 import org.telegram.telegrambots.meta.api.methods.commands.SetMyCommands;
+import org.telegram.telegrambots.meta.api.methods.send.SendAudio;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
 import org.telegram.telegrambots.meta.api.methods.send.SendSticker;
-import org.telegram.telegrambots.meta.api.methods.updates.GetUpdates;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageCaption;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageMedia;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageReplyMarkup;
+import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.api.objects.InputFile;
 import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.commands.BotCommand;
 import org.telegram.telegrambots.meta.api.objects.commands.scope.BotCommandScopeDefault;
+import org.telegram.telegrambots.meta.api.objects.media.InputMediaAudio;
 import org.telegram.telegrambots.meta.api.objects.media.InputMediaPhoto;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
-
-import org.telegram.telegrambots.meta.api.objects.InputFile;
-
-import static java.lang.Math.toIntExact;
-
 import java.io.File;
 import java.util.*;
+
+import static java.lang.Math.toIntExact;
 
 @Slf4j
 @Component
@@ -48,18 +46,31 @@ public class TelegramBot extends TelegramLongPollingBot {
     private UserRepository userRepository;
     @Autowired
     private WordsRepository wordsRepository;
+    @Autowired
+    private FavoriteWordsRepository favoriteWordsRepository;
     final BotConfig config;
+
+    final String audioPath = "\\media\\audio";
 
     private final String rightButtonemj = EmojiParser.parseToUnicode(":arrow_right:");
     private final String leftButtonemj = EmojiParser.parseToUnicode(":arrow_left:");
     private final String backToMenu = EmojiParser.parseToUnicode(":back:");
+    private final String favorite = EmojiParser.parseToUnicode(":star:");
+    private final String removeFavorite = EmojiParser.parseToUnicode(":no_entry_sign:");
+    private final String sadFace = EmojiParser.parseToUnicode(":pensive:");
+    private final String stonks = EmojiParser.parseToUnicode("\uD83D\uDCC8");
+    private final String bunchSmile = EmojiParser.parseToUnicode("\uD83D\uDCD6");
+    private final String learn = EmojiParser.parseToUnicode("\uD83E\uDDD1\u200D\uD83C\uDFEB");
+
     static final String HELP_TEXT = "Информация о командах: \n\n" +
-            "/start "+ "регистрация и получение стартового сообщения\n\n" +
-            "/test "+ "пройти тестирование по изученным словам\n\n" +
-            "/newbunch "+ "перейти к изучению слов\n\n" +
-            "/deletemydata "+ "обнулить мои ответы\n\n" +
-            "/help "+ "информация о командах\n\n" +
-            "/faq "+ "ответы на часто задаваемые вопросы\n\n";
+            "/start " + "регистрация и получение стартового сообщения\n\n" +
+            "/newbunch " + "перейти к изучению слов\n\n" +
+            "/favorite" + "Перейти к избранный словам\n\n" +
+            "/test " + "пройти тестирование по изученным словам\n\n" +
+            "/faq " + "ответы на часто задаваемые вопросы\n\n" +
+            "/help " + "информация о командах\n\n" +
+            "/deletemydata " + "обнулить мои ответы\n\n" +
+            "Вопросы по боту: @hehheheehe";
 
 
     static final String FAQ = "*Vocabulary bot FAQ*\n" +
@@ -91,11 +102,12 @@ public class TelegramBot extends TelegramLongPollingBot {
         this.config = config;
         List<BotCommand> listOfCommands = new ArrayList<>();
         listOfCommands.add(new BotCommand("/start", "Регистрация и получение стартового сообщения."));
-        listOfCommands.add(new BotCommand("/test", "Пройти тестирование по изученным словам."));
-        listOfCommands.add(new BotCommand("/deletemydata", "Обнулить мои ответы."));
         listOfCommands.add(new BotCommand("/newbunch", "Перейти к изучению слов."));
-        listOfCommands.add(new BotCommand("/help", "Информация о командах."));
+        listOfCommands.add(new BotCommand("/favorite", "Перейти к избранный словам."));
+        listOfCommands.add(new BotCommand("/test", "Пройти тестирование по изученным словам."));
         listOfCommands.add(new BotCommand("/faq", "Ответы на часто задаваемые вопросы."));
+        listOfCommands.add(new BotCommand("/help", "Информация о командах."));
+        listOfCommands.add(new BotCommand("/deletemydata", "Обнулить мои ответы."));
         try {
             this.execute(new SetMyCommands(listOfCommands, new BotCommandScopeDefault(), null));
 
@@ -105,19 +117,269 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     }
 
+   /* public List<FavoriteWords> getNeighboringWords(Long id) {
 
-    public SendMessage sendInlineKeyBoardMessage(long chatId) {
-        SendMessage message = new SendMessage(String.valueOf(chatId), "mydata command");
-
-        sendImageUploadingAFile(String.valueOf(chatId));
+        SessionFactory sessionFactory = new Configuration().configure().buildSessionFactory();
+        Session session = sessionFactory.openSession();
 
 
-        message.setReplyMarkup(menuTest());
-        return message;
+
+        String hql = "FROM FavoriteWord fw " +
+                "WHERE fw.id = (SELECT MAX(id) FROM FavoriteWord WHERE id < :id) " +
+                "   OR fw.id = (SELECT MIN(id) FROM FavoriteWord WHERE id > :id)";
+
+        return sessionFactory.getCurrentSession()
+                .createQuery(hql, FavoriteWords.class)
+                .setParameter("id", id)
+                .list();
+    }*/
+
+
+    public EditMessageReplyMarkup favoriteMenu(Long favorWordId, long chatId, long linkKeyboardMsgID) {
+
+
+        SessionFactory sessionFactory = new Configuration().configure().buildSessionFactory();
+        Session session = sessionFactory.openSession();
+//        Query query = session.createQuery("from FavoriteWords where word_id = :wordId and chat_id = :chatId");
+//
+//        query.setParameter("wordId", favorWordId);
+//        query.setParameter("chatId", chatId);
+//        List list = query.list(); //FavoriteWords{favorite_words_id=24, chat_id=489318704, word_id=1012}
+
+
+//        FavoriteWords recentFavorWord = (FavoriteWords) list.get(0);
+        Optional<FavoriteWords> favoriteObject = favoriteWordsRepository.findById(favorWordId);
+        FavoriteWords recentFavoriteObject = favoriteObject.get();
+
+
+//        TODO думай дальше, queryPrev.setMaxResults(1).uniqueResult() возвращает список элементов,
+//         каждый из которых <  favorite_words_id. setMaxResults(1) берет только 1 значение, и оно 1ое из списка
+
+
+//        Query queryPrev = session.createQuery("from FavoriteWords where favorite_words_id<:tableId and chat_id = :chatId");
+//        Query queryNext = session.createQuery("from FavoriteWords where favorite_words_id>:tableId and chat_id = :chatId");
+//
+        Query queryPrev = session.createQuery("from FavoriteWords where favorite_words_id = (SELECT MAX(favorite_words_id) FROM FavoriteWords WHERE favorite_words_id < :tableId) and chat_id = :chatId");
+        Query queryNext = session.createQuery("from FavoriteWords where favorite_words_id = (SELECT MIN(favorite_words_id) FROM FavoriteWords WHERE favorite_words_id > :tableId) and chat_id = :chatId");
+
+
+        queryPrev.setParameter("tableId", favorWordId);
+        queryPrev.setParameter("chatId", chatId);
+        queryNext.setParameter("tableId", favorWordId);
+        queryNext.setParameter("chatId", chatId);
+
+
+        FavoriteWords prevWord = (FavoriteWords) queryPrev.setMaxResults(1).uniqueResult();
+        FavoriteWords nextWord = (FavoriteWords) queryNext.setMaxResults(1).uniqueResult();
+
+        Query queryMax = session.createQuery("select max(favorite_words_id) from FavoriteWords where chat_id = :chatId");
+        Query queryMin = session.createQuery("select min(favorite_words_id) from FavoriteWords where chat_id = :chatId");
+
+//        queryMax.setParameter("tableId", favorWordId);
+        queryMax.setParameter("chatId", chatId);
+//        queryMin.setParameter("tableId", favorWordId);
+        queryMin.setParameter("chatId", chatId);
+
+
+        Optional<FavoriteWords> maxWordObj = favoriteWordsRepository.findById((Long) queryMax.setMaxResults(1).uniqueResult());
+        FavoriteWords maxWord = maxWordObj.get();
+
+        Optional<FavoriteWords> minWordObj = favoriteWordsRepository.findById((Long) queryMin.setMaxResults(1).uniqueResult());
+        FavoriteWords minWord = minWordObj.get();
+
+//        FavoriteWords minWord = (FavoriteWords) queryMin.setMaxResults(1).uniqueResult();
+        if (prevWord == null && nextWord == null) {
+            sendMessage(chatId, "У вас пока только одно избранное слово");
+            prevWord = recentFavoriteObject;
+            nextWord = recentFavoriteObject;
+        }
+
+        if (prevWord == null) {
+            prevWord = maxWord;
+        }
+        if (nextWord == null) {
+            nextWord = minWord;
+        }
+
+
+        InlineKeyboardMarkup keyboardMarkup = menuBunches();
+        EditMessageReplyMarkup newKeyboard = new EditMessageReplyMarkup();
+        newKeyboard.setChatId(chatId);
+        newKeyboard.setMessageId((int) linkKeyboardMsgID);
+
+        keyboardMarkup.getKeyboard().get(1).get(0).setCallbackData("remove favorite" + ":" + recentFavoriteObject.getWord_id());
+        keyboardMarkup.getKeyboard().get(0).get(0).setCallbackData("prevFavor" + ":" + prevWord.getFavorite_words_id());
+        keyboardMarkup.getKeyboard().get(0).get(1).setCallbackData("nextFavor" + ":" + nextWord.getFavorite_words_id());
+        newKeyboard.setReplyMarkup(keyboardMarkup);
+        return newKeyboard;
     }
 
 
-    public void sendImageUploadingAFile(String chatId) {
+    public BunchReceiver favoriteInitMenu(long chatId) {
+        BunchReceiver firstBunch = null;
+
+        Optional<User> user = userRepository.findById(chatId);
+        Long favorite_word = (long) user.get().getFavoriteworditer();
+        if (favorite_word == 0 || favoriteWordsRepository.findById(favorite_word).get() == null) {
+            sendMessage(chatId, "У вас пока еще нет избранных слов" + sadFace);
+            return null;
+        }
+        Optional<FavoriteWords> favoriteWordObject = favoriteWordsRepository.findById(favorite_word);
+        FavoriteWords favoriteWordFromTable = favoriteWordObject.get();
+
+
+        Optional<Words> wordDataFromDB = wordsRepository.findById(favoriteWordFromTable.getWord_id());
+        Words word = wordDataFromDB.get();
+
+        // Create send method
+        SendPhoto sendPhotoRequest = new SendPhoto();
+        sendPhotoRequest.setChatId(chatId);
+        sendPhotoRequest.setPhoto(new InputFile(new File(word.getImagePath())));
+        sendPhotoRequest.setCaption(word.getEngword() + " - " + word.getTranslation() + '\n' + word.getExample());
+
+
+//        SessionFactory sessionFactory = new Configuration().configure().buildSessionFactory();
+//        Session session = sessionFactory.openSession();
+//        Query query = session.createQuery("from FavoriteWords where word_id = :wordId and chat_id = :chatId");
+//
+//        query.setParameter("wordId", favorite_word);
+//        query.setParameter("chatId", chatId);
+//        List list = query.list(); //FavoriteWords{favorite_words_id=24, chat_id=489318704, word_id=1012}
+//
+//        FavoriteWords recentFavorWord = (FavoriteWords) list.get(0);
+//        Long tableFavorId = recentFavorWord.getFavorite_words_id();
+//
+//        Query queryPrev = session.createQuery("from FavoriteWords where favorite_words_id<:tableId and chat_id = :chatId");
+//        Query queryNext = session.createQuery("from FavoriteWords where favorite_words_id>:tableId and chat_id = :chatId");
+//
+//        queryPrev.setParameter("tableId", tableFavorId);
+//        queryPrev.setParameter("chatId", chatId);
+//        queryNext.setParameter("tableId", tableFavorId);
+//        queryNext.setParameter("chatId", chatId);
+//
+//
+//        FavoriteWords prevWord = (FavoriteWords) queryPrev.setMaxResults(1).uniqueResult();
+//        FavoriteWords nextWord = (FavoriteWords) queryNext.setMaxResults(1).uniqueResult();
+//        if (prevWord == null) prevWord = nextWord;
+//        if (nextWord == null) nextWord = prevWord;
+//        if (prevWord == null && nextWord == null) {
+//            prevWord = recentFavorWord;
+//            nextWord = recentFavorWord;
+//        }
+//
+//
+//        InlineKeyboardMarkup keyboardMarkup = menuBunches();
+//        EditMessageReplyMarkup newKeyboard = new EditMessageReplyMarkup();
+//        newKeyboard.setChatId(chatId);
+//        try {
+//            newKeyboard.setMessageId(execute(sendPhotoRequest).getMessageId());
+//        } catch (TelegramApiException e) {
+//            e.printStackTrace();
+//        }
+//        keyboardMarkup.getKeyboard().get(1).get(0).setCallbackData("remove favorite" + ":" + favorite_word);
+//        keyboardMarkup.getKeyboard().get(0).get(0).setCallbackData("prevFavor" + ":" + prevWord.getFavorite_words_id());
+//        keyboardMarkup.getKeyboard().get(0).get(1).setCallbackData("nextFavor" + ":" + nextWord.getFavorite_words_id());
+//        newKeyboard.setReplyMarkup(keyboardMarkup);
+        try {
+            // Execute the method
+
+            execute(favoriteMenu(favorite_word, chatId, execute(sendPhotoRequest).getMessageId()));
+
+
+        } catch (TelegramApiException e) {
+            log.error("Error with favoriteinimenu()",favorite_word,chatId);
+            e.printStackTrace();
+        }
+
+
+        SendAudio wordAudio = new SendAudio();
+        wordAudio.setChatId(chatId);
+        wordAudio.setAudio(
+                new InputFile(
+                        new File(audioPath + "\\word\\" + favorite_word + "w.mp3"),
+                        word.getEngword().replace("\\", ""))
+        );
+
+        SendAudio contextAudio = new SendAudio();
+        contextAudio.setChatId(chatId);
+        contextAudio.setAudio(new InputFile(
+                new File(
+                        audioPath + "\\context\\" + favorite_word + "c.mp3"),
+                word.getExample().replace("\\", ""))
+        );
+        try {
+
+            firstBunch = new BunchReceiver(String.valueOf(chatId),
+                    execute(wordAudio).getMessageId(),
+                    execute(contextAudio).getMessageId()
+            );
+
+        } catch (TelegramApiException e) {
+            throw new RuntimeException(e);
+        }
+
+        return firstBunch;
+    }
+
+    public void iterFavorite(long chatId, long messageId, BunchReceiver lastAudios) {
+        EditMessageCaption newMessage = new EditMessageCaption();
+        newMessage.setChatId(chatId);
+        newMessage.setMessageId((int) messageId);
+
+        Optional<User> user = userRepository.findById(Long.valueOf(chatId));
+        Long favoriteWordIterId = Long.valueOf(user.get().getFavoriteworditer());
+        Optional<FavoriteWords> fuckmeilovehibernate = favoriteWordsRepository.findById(favoriteWordIterId);
+        FavoriteWords favorWordObj = fuckmeilovehibernate.get();
+        Optional<Words> wordDataFromDB = wordsRepository.findById(favorWordObj.getWord_id());
+        Words word = wordDataFromDB.get();
+
+
+        EditMessageMedia newMedia = new EditMessageMedia();
+        newMedia.setChatId(chatId);
+        newMedia.setMessageId(toIntExact(messageId));
+        InputMediaPhoto newPhoto = new InputMediaPhoto();
+        newPhoto.setMedia(new File(word.getImagePath()), word.getEngword() + " - " + word.getTranslation() + '\n' + word.getExample());
+        newMedia.setMedia(newPhoto);
+
+        newMessage.setCaption(word.getEngword() + " - " + word.getTranslation() + '\n' + word.getExample());
+
+
+        EditMessageMedia wordAudio = new EditMessageMedia();
+        wordAudio.setChatId(chatId);
+        wordAudio.setMessageId(lastAudios.getMessageAudioWordID());
+        InputMediaAudio newWordAudio = new InputMediaAudio();
+        newWordAudio.setMedia(new File(audioPath + "\\word\\" + favorWordObj.getWord_id() + "w.mp3"), word.getEngword().replace("\\", ""));
+        wordAudio.setMedia(newWordAudio);
+
+
+        EditMessageMedia contextAudio = new EditMessageMedia();
+        contextAudio.setChatId(chatId);
+        contextAudio.setMessageId(lastAudios.getMessageAudioContextID());
+        InputMediaAudio newContextAudio = new InputMediaAudio();
+        newContextAudio.setMedia(new File(audioPath + "\\context\\" + favorWordObj.getWord_id() + "c.mp3"), word.getExample().replace("\\", ""));
+        contextAudio.setMedia(newContextAudio);
+
+        try {
+
+            execute(newMedia);
+            try {
+                execute(newMessage);
+                execute(favoriteMenu(favoriteWordIterId, chatId, messageId));
+                execute(wordAudio);
+                execute(contextAudio);
+
+            } catch (TelegramApiException e) {
+                throw new RuntimeException(e);
+            }
+        } catch (TelegramApiException e) {
+            log.error("iterFavorite()", chatId);
+            e.printStackTrace();
+        }
+
+
+    }
+
+    public BunchReceiver sendImageUploadingAFile(String chatId) {
         Optional<User> user = userRepository.findById(Long.valueOf(chatId));
         Long recent_word = Long.valueOf(user.get().getRecentWord());
 
@@ -127,11 +389,18 @@ public class TelegramBot extends TelegramLongPollingBot {
 
         // Create send method
         SendPhoto sendPhotoRequest = new SendPhoto();
-
-
+/*
+        SendMediaGroup sendPhotoCaptionAndAudio = new SendMediaGroup();
+        sendPhotoCaptionAndAudio.setChatId(chatId);
+        List<InputMedia<?>> mediaList = new InputFile[]{new InputFile(new File(word.getImagePath())),};
+        InputMedia<?>[] mediaArray = mediaList.toArray(InputMedia[]::new);
+        sendPhotoCaptionAndAudio.setMedias();
+*/
         sendPhotoRequest.setCaption(word.getEngword() + " - " + word.getTranslation() + '\n' + word.getExample());
 
-        sendPhotoRequest.setReplyMarkup(menuBunches());
+        InlineKeyboardMarkup keyboardMarkup = menuBunches();
+        EditMessageReplyMarkup newKeyboard = new EditMessageReplyMarkup();
+        newKeyboard.setChatId(chatId);
 
 
         // Set destination chat id
@@ -139,12 +408,32 @@ public class TelegramBot extends TelegramLongPollingBot {
         // Set the photo file as a new photo (You can also use InputStream with a constructor overload)
 //        sendPhotoRequest.setPhoto(new InputFile(new File(filePath)));
         sendPhotoRequest.setPhoto(new InputFile(new File(word.getImagePath())));
+
+        SendAudio wordAudio = new SendAudio();
+        wordAudio.setChatId(chatId);
+        wordAudio.setAudio(new InputFile(new File(audioPath + "\\word\\" + recent_word + "w.mp3"), word.getEngword().replace("\\", "")));
+        SendAudio contextAudio = new SendAudio();
+        contextAudio.setChatId(chatId);
+        contextAudio.setAudio(new InputFile(new File(audioPath + "\\context\\" + recent_word + "c.mp3"), word.getExample().replace("\\", "")));
+
+        BunchReceiver firstBunch = null;
         try {
             // Execute the method
-            execute(sendPhotoRequest);
+
+            newKeyboard.setMessageId(execute(sendPhotoRequest).getMessageId());
+            keyboardMarkup.getKeyboard().get(1).get(0).setCallbackData("remove favorite" + ":" + recent_word);
+            newKeyboard.setReplyMarkup(keyboardMarkup);
+            execute(newKeyboard);
+
+//            execute(wordAudio);
+//            execute(contextAudio);
+
+            firstBunch = new BunchReceiver(chatId, execute(wordAudio).getMessageId(), execute(contextAudio).getMessageId());
+
         } catch (TelegramApiException e) {
             e.printStackTrace();
         }
+        return firstBunch;
     }
 
 
@@ -234,69 +523,107 @@ public class TelegramBot extends TelegramLongPollingBot {
         return inlineKeyboardMarkup;
     }
 
+
     public InlineKeyboardMarkup menuBunches() {
         InlineKeyboardMarkup inlineKeyboardMarkup = new InlineKeyboardMarkup();
         InlineKeyboardButton inlineKeyboardButtonLeft = new InlineKeyboardButton();
         InlineKeyboardButton inlineKeyboardButtonRight = new InlineKeyboardButton();
+        InlineKeyboardButton inlineKeyboardButtonFavorite = new InlineKeyboardButton();
+        InlineKeyboardButton inlineKeyboardButtonRemoveFromFavorite = new InlineKeyboardButton();
+
 
         inlineKeyboardButtonRight.setText("Next" + rightButtonemj);
         inlineKeyboardButtonRight.setCallbackData("next word");
         inlineKeyboardButtonLeft.setText(leftButtonemj + "Previous");
         inlineKeyboardButtonLeft.setCallbackData("previous word");
-        List<InlineKeyboardButton> keyboardButtonsRow1 = new ArrayList<>();
-        keyboardButtonsRow1.add(inlineKeyboardButtonLeft);
-        keyboardButtonsRow1.add(inlineKeyboardButtonRight);
-
+        inlineKeyboardButtonFavorite.setText(favorite + "Add to favorite" + favorite);
+        inlineKeyboardButtonFavorite.setCallbackData("favorite");
+        inlineKeyboardButtonRemoveFromFavorite.setText(removeFavorite + "Remove from favorite" + removeFavorite);
+        inlineKeyboardButtonRemoveFromFavorite.setCallbackData("remove favorite");
+        List<InlineKeyboardButton> keyboardButtonsRowArrows = new ArrayList<>();
+        keyboardButtonsRowArrows.add(inlineKeyboardButtonLeft);
+        keyboardButtonsRowArrows.add(inlineKeyboardButtonRight);
+        List<InlineKeyboardButton> keyboardButtonsRowFavorite = new ArrayList<>();
+        keyboardButtonsRowFavorite.add(inlineKeyboardButtonRemoveFromFavorite);
+        keyboardButtonsRowFavorite.add(inlineKeyboardButtonFavorite);
         List<List<InlineKeyboardButton>> rowList = new ArrayList<>();
-        rowList.add(keyboardButtonsRow1);
+        rowList.add(keyboardButtonsRowArrows);
+        rowList.add(keyboardButtonsRowFavorite);
         rowList.add(backToMainMenuButton());
         inlineKeyboardMarkup.setKeyboard(rowList);
         return inlineKeyboardMarkup;
     }
 
-    public List<InlineKeyboardButton> backToMainMenuButton(){
+    public List<InlineKeyboardButton> backToMainMenuButton() {
         InlineKeyboardButton inlineKeyboardButtonMain = new InlineKeyboardButton();
-        inlineKeyboardButtonMain.setText(backToMenu+ "Back to menu");
+        inlineKeyboardButtonMain.setText(backToMenu + "Back to menu");
         inlineKeyboardButtonMain.setCallbackData("back to menu");
         List<InlineKeyboardButton> keyboardButtonsRow2 = new ArrayList<>();
         keyboardButtonsRow2.add(inlineKeyboardButtonMain);
         return keyboardButtonsRow2;
     }
 
-    public void iterBunch(long chat_id, long message_id, boolean direction) {
+    public void iterBunch(long chatId, long messageId, BunchReceiver firstLayot, boolean direction) {
 
         EditMessageCaption new_message = new EditMessageCaption();
 
-
-        Optional<User> user = userRepository.findById(chat_id);
+        Optional<User> user = userRepository.findById(chatId);
         if (direction) user.get().setRecentWord(user.get().getRecentWord() + 1);
         else if (!direction && user.get().getRecentWord() > 1) user.get().setRecentWord(user.get().getRecentWord() - 1);
 
         userRepository.save(user.get());
-        new_message.setChatId(chat_id);
-        new_message.setMessageId(toIntExact(message_id));
+        new_message.setChatId(chatId);
+        new_message.setMessageId(toIntExact(messageId));
 
-        Long recentWordId = Long.valueOf(Objects.requireNonNull(userRepository.findById(chat_id).orElse(null)).getRecentWord());
+        Long recentWordId = Long.valueOf(Objects.requireNonNull(userRepository.findById(chatId).orElse(null)).getRecentWord());
         String filePath = Objects.requireNonNull(wordsRepository.findById(recentWordId).orElse(null)).getImagePath();
         String word = Objects.requireNonNull(wordsRepository.findById(recentWordId).orElse(null)).getEngword();
         String translation = Objects.requireNonNull(wordsRepository.findById(recentWordId).orElse(null)).getTranslation();
         String caption = Objects.requireNonNull(wordsRepository.findById(recentWordId).orElse(null)).getExample();
 
         EditMessageMedia new_media = new EditMessageMedia();
-        new_media.setChatId(chat_id);
-        new_media.setMessageId(toIntExact(message_id));
+        new_media.setChatId(chatId);
+        new_media.setMessageId(toIntExact(messageId));
         InputMediaPhoto newPhoto = new InputMediaPhoto();
         newPhoto.setMedia(new File(filePath), word + " - " + translation + '\n' + caption);
         new_media.setMedia(newPhoto);
 
-        new_message.setReplyMarkup(menuBunches());
+
+        InlineKeyboardMarkup keyboardMarkup = menuBunches();
+        EditMessageReplyMarkup newKeyboard = new EditMessageReplyMarkup();
+        newKeyboard.setChatId(chatId);
+        newKeyboard.setMessageId((int) messageId);
+        keyboardMarkup.getKeyboard().get(1).get(0).setCallbackData("remove favorite" + ":" + recentWordId);
+        newKeyboard.setReplyMarkup(keyboardMarkup);
+
 
         new_message.setCaption(word + " - " + translation + '\n' + caption);
+
+
+        EditMessageMedia wordAudio = new EditMessageMedia();
+        wordAudio.setChatId(chatId);
+        wordAudio.setMessageId(firstLayot.getMessageAudioWordID());
+        InputMediaAudio newWordAudio = new InputMediaAudio();
+        newWordAudio.setMedia(new File(audioPath + "\\word\\" + recentWordId + "w.mp3"), word.replace("\\", ""));
+        wordAudio.setMedia(newWordAudio);
+
+
+        EditMessageMedia contextAudio = new EditMessageMedia();
+        contextAudio.setChatId(chatId);
+        contextAudio.setMessageId(firstLayot.getMessageAudioContextID());
+        InputMediaAudio newContextAudio = new InputMediaAudio();
+        newContextAudio.setMedia(new File(audioPath + "\\context\\" + recentWordId + "c.mp3"), caption.replace("\\", ""));
+        contextAudio.setMedia(newContextAudio);
+
 
         try {
             execute(new_media);
             try {
                 execute(new_message);
+                execute(newKeyboard);
+                execute(wordAudio);
+                execute(contextAudio);
+
             } catch (TelegramApiException e) {
                 throw new RuntimeException(e);
             }
@@ -305,14 +632,13 @@ public class TelegramBot extends TelegramLongPollingBot {
         }
     }
 
-    public void iterWrongAnswersBunch(long chat_id, long wordId, long message_id, int iter, int size) {
+    public void iterWrongAnswersBunch(long chatId, long wordId, long messageId, int iter, int size) {
 
         EditMessageCaption new_message = new EditMessageCaption();
 
 
-
-        new_message.setChatId(chat_id);
-        new_message.setMessageId(toIntExact(message_id));
+        new_message.setChatId(chatId);
+        new_message.setMessageId(toIntExact(messageId));
 
         String filePath = Objects.requireNonNull(wordsRepository.findById(wordId).orElse(null)).getImagePath();
         String word = Objects.requireNonNull(wordsRepository.findById(wordId).orElse(null)).getEngword();
@@ -320,8 +646,8 @@ public class TelegramBot extends TelegramLongPollingBot {
         String caption = Objects.requireNonNull(wordsRepository.findById(wordId).orElse(null)).getExample();
 
         EditMessageMedia new_media = new EditMessageMedia();
-        new_media.setChatId(chat_id);
-        new_media.setMessageId(toIntExact(message_id));
+        new_media.setChatId(chatId);
+        new_media.setMessageId(toIntExact(messageId));
         InputMediaPhoto newPhoto = new InputMediaPhoto();
         newPhoto.setMedia(new File(filePath), word + " - " + translation + '\n' + caption);
         new_media.setMedia(newPhoto);
@@ -341,18 +667,17 @@ public class TelegramBot extends TelegramLongPollingBot {
         inlineKeyboardMarkup.setKeyboard(rowList);
         new_message.setReplyMarkup(inlineKeyboardMarkup);
 
-        new_message.setCaption("Вам осталось повторить " + iter +"/" +size +" слов!" + '\n' +word + " - " + translation + '\n' + caption);
+        new_message.setCaption("Вам осталось повторить " + iter + "/" + size + " слов!" + '\n' + word + " - " + translation + '\n' + caption);
 
-        Optional<User> user = userRepository.findById(chat_id);
+        Optional<User> user = userRepository.findById(chatId);
 
         try {
             execute(new_media);
             try {
                 execute(new_message);
 
-                user.get().setWrongworditer(user.get().getWrongworditer()+1);
+                user.get().setWrongworditer(user.get().getWrongworditer() + 1);
                 userRepository.save(user.get());
-                //outeriter++;
             } catch (TelegramApiException e) {
                 throw new RuntimeException(e);
             }
@@ -361,7 +686,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         }
     }
 
-    public void testing(long chat_id) {
+    public void testing(long chatId) {
         SendPhoto msgPhoto = new SendPhoto();
 
 
@@ -375,12 +700,12 @@ public class TelegramBot extends TelegramLongPollingBot {
         rowList.add(keyboardButtonsRow1);
         rowList.add(backToMainMenuButton());
         inlineKeyboardMarkup.setKeyboard(rowList);
-        msgPhoto.setChatId(chat_id);
+        msgPhoto.setChatId(chatId);
         msgPhoto.setReplyMarkup(inlineKeyboardMarkup);
 
 
         msgPhoto.setPhoto(new InputFile(new File(wordsRepository.findById(5001L).get().getImagePath())));
-        msgPhoto.setCaption("Вы прошли "+userRepository.findById(chat_id).get().getRecentWord()+" новых слов, вам предлагается пройти тестирование.\nВам будет дано изображение и превод слова на русском - выберите один из четырех вариантов ответа.");
+        msgPhoto.setCaption("Вы прошли " + userRepository.findById(chatId).get().getRecentWord() + " новых слов, вам предлагается пройти тестирование.\nВам будет дано изображение и превод слова на русском - выберите один из четырех вариантов ответа.");
         try {
             execute(msgPhoto);
         } catch (TelegramApiException e) {
@@ -388,35 +713,31 @@ public class TelegramBot extends TelegramLongPollingBot {
         }
     }
 
-    public Pair[] testBunch(long chat_id, long message_id) {
-        Optional<User> user = userRepository.findById(chat_id);
+    public void testBunch(long chatId, long messageId) {
+        Optional<User> user = userRepository.findById(chatId);
         int range = user.get().getRecentWord();   //7
         /*int max = (int) (Math.floor(range / 10) * 10);
 
         if (max == 0)
             max = 10;*/
         int value = 0;
-        if (range < 4 ) value = 4;
-        else value = new Random().nextInt(4,range+1);
-
+        if (range < 4) value = 4;
+        else value = new Random().nextInt(4, range + 1);
 
 
         EditMessageCaption newMessage = new EditMessageCaption();
-        newMessage.setChatId(chat_id);
-        newMessage.setMessageId((int) message_id);
+        newMessage.setChatId(chatId);
+        newMessage.setMessageId((int) messageId);
         EditMessageMedia newMedia = new EditMessageMedia();
-        newMedia.setChatId(chat_id);
-        newMedia.setMessageId((int) message_id);
+        newMedia.setChatId(chatId);
+        newMedia.setMessageId((int) messageId);
         InputMediaPhoto newPhoto = new InputMediaPhoto();
 
 
-        String a = "";
-        String b = "";
-        String c = "";
-        String d = "";
-        String f = "";
+        String a ,b, c, d, f;
 
-        int[] ints = new Random().ints(1, value+1).distinct().limit(4).toArray();
+
+        int[] ints = new Random().ints(1, value + 1).distinct().limit(4).toArray();
         int lottery = new Random().nextInt(0, 4);
 
         a = wordsRepository.findById((long) ints[0]).get().getEngword();
@@ -430,8 +751,8 @@ public class TelegramBot extends TelegramLongPollingBot {
         Pair pair2 = new Pair(Long.valueOf(ints[1]), b);
         Pair pair3 = new Pair(Long.valueOf(ints[2]), c);
         Pair pair4 = new Pair(Long.valueOf(ints[3]), d);
-        Pair[] answersWithid = {pair,pair1,pair2,pair3,pair4};
-
+        Pair[] answersWithid = {pair, pair1, pair2, pair3, pair4};
+        resultsMap.put(String.valueOf(chatId), answersWithid);
 
 
         Optional<Words> wordDataFromDB = wordsRepository.findById((long) ints[lottery]);
@@ -478,15 +799,11 @@ public class TelegramBot extends TelegramLongPollingBot {
         */
 
 
-
-
         InlineKeyboardMarkup inlineKeyboardMarkup = new InlineKeyboardMarkup();
         InlineKeyboardButton inlineKeyboardButtonA = new InlineKeyboardButton();
         InlineKeyboardButton inlineKeyboardButtonB = new InlineKeyboardButton();
         InlineKeyboardButton inlineKeyboardButtonC = new InlineKeyboardButton();
         InlineKeyboardButton inlineKeyboardButtonD = new InlineKeyboardButton();
-
-
 
 
         List<InlineKeyboardButton> keyboardButtonsRow1 = new ArrayList<>();
@@ -506,11 +823,10 @@ public class TelegramBot extends TelegramLongPollingBot {
 
 
         InlineKeyboardButton inlineKeyboardButtonMain = new InlineKeyboardButton();
-        inlineKeyboardButtonMain.setText(backToMenu+ "Back to menu");
+        inlineKeyboardButtonMain.setText(backToMenu + "Back to menu");
         inlineKeyboardButtonMain.setCallbackData("back to menu from testing");
         List<InlineKeyboardButton> keyboardButtonsRowMainBtn = new ArrayList<>();
         keyboardButtonsRowMainBtn.add(inlineKeyboardButtonMain);
-
 
 
         rowList.add(keyboardButtonsRow1);
@@ -559,28 +875,53 @@ public class TelegramBot extends TelegramLongPollingBot {
             }
         }
 */
-        return answersWithid;
+
     }
 
 
-    public void viewMainMenu(long chat_id, long message_id){
+    public void viewMainMenu(long chatId, long messageId) {
         EditMessageCaption new_message = new EditMessageCaption();
 
-        Optional<User> user = userRepository.findById(chat_id);
+        Optional<User> user = userRepository.findById(chatId);
         String name = user.get().getFirstName();
         int recentWord = user.get().getRecentWord();
         int rightAnswers = user.get().getRightAnswers();
         int answers = user.get().getAnswers();
-        new_message.setCaption("Dear " + name +"! На данный момент вы уже изучили "+recentWord +"/5000 слов. \n\n" +
-                "Go on! \n\n"+
-                "Вы дали " + rightAnswers+"/"+answers+" правильных ответов. \n\n"+
-                "Для продолжения изучения новых слов введите команду: \n /newbunch \n\n"+
-                "Для прохождения тестирования по изученным словам введите команду: \n /test \n\n"+
-                "P.S. \n Для сброса статистики ответов введите команду: \n /deletemydata \n\n"+
+        new_message.setCaption("Dear " + name + "! На данный момент вы уже изучили " + recentWord + "/5000 слов. \n\n" +
+                "Go on! \n\n" +
+                "Вы дали " + rightAnswers + "/" + answers + " правильных ответов."+stonks+"\n\n" +
+                "Для продолжения изучения новых слов введите команду: \n /newbunch \n\n" +
+                "Для прохождения тестирования по изученным словам введите команду: \n /test \n\n" +
+                "P.S. \n Для сброса статистики ответов введите команду: \n /deletemydata \n\n" +
                 "Все команды: \n /help \n\n"
         );
-        new_message.setMessageId((int) message_id);
-        new_message.setChatId(chat_id);
+        new_message.setMessageId((int) messageId);
+        new_message.setChatId(chatId);
+
+        InlineKeyboardMarkup inlineKeyboardMarkup = new InlineKeyboardMarkup();
+        InlineKeyboardButton inlineKeyboardButtonFavorWords = new InlineKeyboardButton();
+        inlineKeyboardButtonFavorWords.setText(favorite + "favorite words" + favorite);
+        inlineKeyboardButtonFavorWords.setCallbackData("view favorite from menu");
+        InlineKeyboardButton inlineKeyboardButtonNewBunch = new InlineKeyboardButton();
+        inlineKeyboardButtonNewBunch.setText(bunchSmile + "Учить слова" + bunchSmile);
+        inlineKeyboardButtonNewBunch.setCallbackData("new bunch from menu");
+        InlineKeyboardButton inlineKeyboardTest = new InlineKeyboardButton();
+        inlineKeyboardTest.setText(learn + "Test" + learn);
+        inlineKeyboardTest.setCallbackData("test from menu");
+        List<InlineKeyboardButton> keyboardButtonsRowFavorite = new ArrayList<>();
+        List<InlineKeyboardButton> keyboardButtonsRowNewBunch = new ArrayList<>();
+        List<InlineKeyboardButton> keyboardButtonsRowTest = new ArrayList<>();
+        keyboardButtonsRowFavorite.add(inlineKeyboardButtonFavorWords);
+        keyboardButtonsRowNewBunch.add(inlineKeyboardButtonNewBunch);
+        keyboardButtonsRowTest.add(inlineKeyboardTest);
+        List<List<InlineKeyboardButton>> rowList = new ArrayList<>();
+        rowList.add(keyboardButtonsRowFavorite);
+        rowList.add(keyboardButtonsRowNewBunch);
+        rowList.add(keyboardButtonsRowTest);
+        inlineKeyboardMarkup.setKeyboard(rowList);
+        new_message.setReplyMarkup(inlineKeyboardMarkup);
+
+
         try {
             execute(new_message);
         } catch (TelegramApiException e) {
@@ -589,17 +930,18 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     }
 
-    Pair[] results;
 
+    HashMap<String, ArrayList<Long>> wrongAnswersMap = new HashMap<>();
+    HashMap<String, Pair[]> resultsMap = new HashMap<>();
+    HashMap<String, BunchReceiver> lastAudios = new HashMap<>();
 
-    ArrayList<Long> wrongAnswers = new ArrayList<Long>();
-    //int outeriter = 0;
     @Override
     public void onUpdateReceived(Update update) {
 
         if (update.hasMessage() && update.getMessage().hasText()) {
             String messageText = update.getMessage().getText();
             long chatId = update.getMessage().getChatId();
+
             switch (messageText) {
                 case "/start":
                     registerUser(update.getMessage());
@@ -613,33 +955,33 @@ public class TelegramBot extends TelegramLongPollingBot {
                     sendMessage(chatId, HELP_TEXT);
                     break;
                 case "/test":
-                    wrongAnswers = new ArrayList<Long>();
+                    wrongAnswersMap.put(String.valueOf(chatId), new ArrayList<Long>());
                     Optional<User> usern1 = userRepository.findById(chatId);
                     usern1.get().setWrongworditer(0);
                     userRepository.save(usern1.get());
                     testing(chatId);
                     break;
-                case("/deletemydata"):
+                case ("/deletemydata"):
                     Optional<User> user = userRepository.findById(chatId);
                     user.get().setRightAnswers(0);
                     user.get().setAnswers(0);
                     userRepository.save(user.get());
                     break;
-                /*case "/mydata":
-                    try {
-                        execute(sendInlineKeyBoardMessage(update.getMessage().getChatId()));
-                    } catch (TelegramApiException e) {
-                        throw new RuntimeException(e);
-                    }
-                    break;*/
+
                 case "/faq":
                     sendFAQ(chatId);
                     break;
                 case "/newbunch":
-                    sendImageUploadingAFile(String.valueOf(chatId));
+                    BunchReceiver firstLayout = sendImageUploadingAFile(String.valueOf(chatId));
+                    lastAudios.put(String.valueOf(chatId), firstLayout);
                     break;
 
+                case "/favorite":
+                    Optional<User> userCheckNullFavor = userRepository.findById(chatId);
+                    BunchReceiver firstFavor = favoriteInitMenu(chatId);
+                    lastAudios.put(String.valueOf(chatId), firstFavor);
 
+                    break;
                 default:
                     sendMessage(chatId, "Sorry, I don't know this command");
 
@@ -647,101 +989,214 @@ public class TelegramBot extends TelegramLongPollingBot {
 
         } else if (update.hasCallbackQuery()) {
             // Set variables
-            String call_data = update.getCallbackQuery().getData();
-            long message_id = update.getCallbackQuery().getMessage().getMessageId();
-            long chat_id = update.getCallbackQuery().getMessage().getChatId();
+            String callData = update.getCallbackQuery().getData();
+            long messageId = update.getCallbackQuery().getMessage().getMessageId();
+            long chatId = update.getCallbackQuery().getMessage().getChatId();
+            Pair[] results = resultsMap.get(String.valueOf(chatId));
+            String[] callBackData = callData.split(":");
+            switch (callBackData[0]) {
+                case ("newbunch"):
+                    BunchReceiver firstLayout = sendImageUploadingAFile(String.valueOf(chatId));
+                    lastAudios.put(String.valueOf(chatId), firstLayout);
 
-            switch (call_data) {
+                    break;
                 case ("next word"):
-                    iterBunch(chat_id, message_id, true);
+                    iterBunch(chatId, messageId, lastAudios.get(String.valueOf(chatId)), true);
                     break;
                 case ("previous word"):
-                    iterBunch(chat_id, message_id, false);
+                    iterBunch(chatId, messageId, lastAudios.get(String.valueOf(chatId)), false);
+                    break;
+                case ("favorite"):
+                    addToFavorite(chatId);
+                    break;
+                case ("remove favorite"):
+
+                    removeFromFavorite(chatId, callBackData[1]);
                     break;
                 case ("test button"):
-                    results = testBunch(chat_id, message_id);
+                    testBunch(chatId, messageId);
                     break;
 
-                case("understand"):
+                case ("view favorite from menu"):
+                    Optional<User> userCheckNullFavor = userRepository.findById(chatId);
+                    BunchReceiver firstFavor = favoriteInitMenu(chatId);
+                    lastAudios.put(String.valueOf(chatId), firstFavor);
 
-                    Optional<User> user = userRepository.findById(chat_id);
-                    if((user.get().getWrongworditer()) >= wrongAnswers.size()){
-                    //if(outeriter >= wrongAnswers.size()){
-                        viewMainMenu(chat_id, message_id);
+                    break;
+
+                case("test from menu"):
+                    wrongAnswersMap.put(String.valueOf(chatId), new ArrayList<Long>());
+                    Optional<User> userForTest = userRepository.findById(chatId);
+                    userForTest.get().setWrongworditer(0);
+                    userRepository.save(userForTest.get());
+                    testing(chatId);
+                    break;
+
+                case("new bunch from menu"):
+                    BunchReceiver firstLayoutFromMenu = sendImageUploadingAFile(String.valueOf(chatId));
+                    lastAudios.put(String.valueOf(chatId), firstLayoutFromMenu);
+
+
+                    break;
+                case ("prevFavor"):
+                    //TODO calling some method like iterFavorite() -> look for iterBunch()
+                    // TODO add changing interator of recentFavoriteWord counter
+//                    favoriteInitMenu(chat_id, message_id, lastAudios.get(String.valueOf(chat_id)), false);
+                    Optional<FavoriteWords> wordPrev = favoriteWordsRepository.findById(Long.valueOf(callBackData[1]));
+                    Optional<User> reduceFavorWordId = userRepository.findById(chatId);
+                    User reduceFavorWordIdUser = reduceFavorWordId.get();
+                    reduceFavorWordIdUser.setFavoriteworditer(Integer.parseInt(callBackData[1]));
+                    userRepository.save(reduceFavorWordIdUser);
+
+                    iterFavorite(chatId, messageId, lastAudios.get(String.valueOf(chatId)));
+                    break;
+
+
+                case ("nextFavor"):
+                    Optional<FavoriteWords> wordNext = favoriteWordsRepository.findById(Long.valueOf(callBackData[1]));
+                    //TODO calling some method like iterFavorite() -> look for iterBunch()
+                    // TODO add changing interator of recentFavoriteWord counter
+//                    favoriteInitMenu(chat_id, message_id, lastAudios.get(String.valueOf(chat_id)), false);
+                    Optional<User> increaseFavorWordId = userRepository.findById(chatId);
+                    User increaseFavorWordIdUser = increaseFavorWordId.get();
+                    increaseFavorWordIdUser.setFavoriteworditer(Integer.parseInt(callBackData[1]));
+                    userRepository.save(increaseFavorWordIdUser);
+
+                    iterFavorite(chatId, messageId, lastAudios.get(String.valueOf(chatId)));
+                    break;
+
+                case ("understand"):
+
+                    Optional<User> user = userRepository.findById(chatId);
+                    if ((user.get().getWrongworditer()) >= wrongAnswersMap.get(String.valueOf(chatId)).size()) {
+                        viewMainMenu(chatId, messageId);
                         break;
                     }
-
-                    iterWrongAnswersBunch(chat_id,wrongAnswers.get((user.get().getWrongworditer())),message_id,wrongAnswers.size()-(user.get().getWrongworditer()),wrongAnswers.size());
-                    //iterWrongAnswersBunch(chat_id,wrongAnswers.get(outeriter),message_id,wrongAnswers.size()-outeriter,wrongAnswers.size());
-
-
-                    /*
-                    for (int abc = 1; abc < wrongAnswers.size(); abc++) {
-                        iterWrongAnswersBunch(chat_id,wrongAnswers.get(abc),message_id,wrongAnswers.size()-abc,wrongAnswers.size());
-                    }
-
-                    */
+                    iterWrongAnswersBunch(
+                            chatId,
+                            wrongAnswersMap.get(
+                                    String.valueOf(chatId)).get((user.get().getWrongworditer())),
+                            messageId,
+                            wrongAnswersMap.get(
+                                    String.valueOf(chatId)).size() - (user.get().getWrongworditer()
+                            ),
+                            wrongAnswersMap.get(String.valueOf(chatId)).size()
+                    );
                     break;
 
 
-                case("back to menu from testing"):
-                    if (wrongAnswers.size()!=0){
-                        Optional<User> usern = userRepository.findById(chat_id);
-                        usern.get().setWrongworditer(0);
-                        userRepository.save(usern.get());
-                        //outeriter=0;
-                        iterWrongAnswersBunch(chat_id,wrongAnswers.get(0),message_id,wrongAnswers.size(),wrongAnswers.size());
-
-                        /*for (int abc = 0; abc < wrongAnswers.size(); abc++) {
-                            iterWrongAnswersBunch(chat_id,wrongAnswers.get(abc),message_id,wrongAnswers.size()-abc,wrongAnswers.size());
-                        }*/
-
-
-                    }else{
-                        Optional<User> usern1 = userRepository.findById(chat_id);
-                        usern1.get().setWrongworditer(0);
-                        userRepository.save(usern1.get());
-                        viewMainMenu(chat_id, message_id);
-                    }
-
+                case ("back to menu from testing"):
+                    backToMenuFromTesting(chatId, messageId);
                     break;
-                case("back to menu"):
-                    Optional<User> usern1 = userRepository.findById(chat_id);
+                case ("back to menu"):
+                    Optional<User> usern1 = userRepository.findById(chatId);
                     usern1.get().setWrongworditer(0);
                     userRepository.save(usern1.get());
-                    viewMainMenu(chat_id, message_id);
+                    viewMainMenu(chatId, messageId);
                     break;
-                default: break;
+                default:
+                    break;
             }
-            if (call_data.equals(results[1].getValue()) ||
-                call_data.equals(results[2].getValue()) ||
-                call_data.equals(results[3].getValue()) ||
-                call_data.equals(results[4].getValue())
-            ) {
-                Optional<User> user = userRepository.findById(chat_id);
-                user.get().setAnswers(user.get().getAnswers() + 1);
-                if(call_data.equals(results[0].getValue())){
-                    user.get().setRightAnswers(user.get().getRightAnswers() + 1);
-                    userRepository.save(user.get());
+            if (results != null) {
+                if (
+                        callData.equals(results[1].getValue()) ||
+                                callData.equals(results[2].getValue()) ||
+                                callData.equals(results[3].getValue()) ||
+                                callData.equals(results[4].getValue())
+                ) {
+                    Optional<User> user = userRepository.findById(chatId);
+                    user.get().setAnswers(user.get().getAnswers() + 1);
+                    if (callData.equals(results[0].getValue())) {
+                        user.get().setRightAnswers(user.get().getRightAnswers() + 1);
+                        userRepository.save(user.get());
 
-                } else{
-                    userRepository.save(user.get());
-                    wrongAnswers.add((Long) results[0].getKey());
+                    } else {
+                        userRepository.save(user.get());
+                        wrongAnswersMap.get(String.valueOf(chatId)).add((Long) results[0].getKey());
+//                        wrongAnswers.add((Long) results[0].getKey());
+//                        wrongAnswersMap.put(String.valueOf(chat_id),wrongAnswersMap.get(String.valueOf(chat_id)).add((Long) results[0].getKey()));
+                    }
+
+                    testBunch(chatId, messageId);
+
                 }
-
-                results = testBunch(chat_id, message_id);
-
             }
         }
     }
 
+    private void backToMenuFromTesting(long chatId, long messageId) {
+        if (wrongAnswersMap.get(String.valueOf(chatId)).size() != 0) {
+            Optional<User> usern = userRepository.findById(chatId);
+            usern.get().setWrongworditer(0);
+            userRepository.save(usern.get());
 
+            iterWrongAnswersBunch(chatId, wrongAnswersMap.get(String.valueOf(chatId)).get(0), messageId, wrongAnswersMap.get(String.valueOf(chatId)).size(), wrongAnswersMap.get(String.valueOf(chatId)).size());
+
+        } else {
+            Optional<User> usern1 = userRepository.findById(chatId);
+            usern1.get().setWrongworditer(0);
+            userRepository.save(usern1.get());
+            viewMainMenu(chatId, messageId);
+        }
+    }
+
+    private void removeFromFavorite(long chatId, String wordId) {
+        SessionFactory sessionFactory = new Configuration().configure().buildSessionFactory();
+        Session session = sessionFactory.openSession();
+        Query query = session.createQuery("from FavoriteWords where word_id = :wordId and chat_id = :chatId");
+
+        query.setParameter("wordId", wordId);
+        query.setParameter("chatId", chatId);
+        List list = query.list();
+
+        FavoriteWords objectToDelete = (FavoriteWords) list.get(0);
+        favoriteWordsRepository.delete(objectToDelete);
+
+
+        Query nullDetector = session.createQuery("from FavoriteWords where chat_id = :chatId");
+        nullDetector.setParameter("chatId", chatId);
+        FavoriteWords recentFavoriteObject = (FavoriteWords) nullDetector.setMaxResults(1).uniqueResult();
+        User userSetNewFavoriteIter = userRepository.findById(chatId).get();
+        userSetNewFavoriteIter.setFavoriteworditer(toIntExact(recentFavoriteObject.getFavorite_words_id()));
+        userRepository.save(userSetNewFavoriteIter);
+
+
+    }
+
+    private void addToFavorite(long chatId) {
+        Optional<User> userForFavor = userRepository.findById(chatId);
+
+        Long favoriteTableInsertWordID = Long.valueOf(userForFavor.get().getRecentWord());
+        FavoriteWords favoriteWord = new FavoriteWords();
+        favoriteWord.setChat_id(chatId);
+        favoriteWord.setWord_id(favoriteTableInsertWordID);
+        favoriteWordsRepository.save(favoriteWord);
+
+
+        User userInitFavor = userForFavor.get();
+        userInitFavor.setFavoriteworditer(toIntExact(favoriteWord.getFavorite_words_id()));
+        userRepository.save(userInitFavor);
+    }
 
     private void sendFAQ(long chatId) {
         SendMessage message = new SendMessage();
         message.enableMarkdown(true);
         message.setChatId(chatId);
         message.setText(FAQ);
+
+        InlineKeyboardMarkup inlineKeyboardMarkup = new InlineKeyboardMarkup();
+        InlineKeyboardButton inlineKeyboardButtonNewBunchFromFAQMenu = new InlineKeyboardButton();
+
+        inlineKeyboardButtonNewBunchFromFAQMenu.setText("Start learning!");
+
+
+        inlineKeyboardButtonNewBunchFromFAQMenu.setCallbackData("newbunch");
+
+        List<InlineKeyboardButton> keyboardButtonFromFAQ = new ArrayList<>();
+        keyboardButtonFromFAQ.add(inlineKeyboardButtonNewBunchFromFAQMenu);
+
+        inlineKeyboardMarkup.setKeyboard(Collections.singletonList(keyboardButtonFromFAQ));
+        message.setReplyMarkup(inlineKeyboardMarkup);
         try {
             execute(message);
         } catch (TelegramApiException e) {
@@ -763,12 +1218,9 @@ public class TelegramBot extends TelegramLongPollingBot {
         message.setText(textToSend);
         try {
             execute(message);
-
         } catch (TelegramApiException e) {
             log.error("Error occurred: " + e.getMessage());
 
         }
     }
 }
-
-
