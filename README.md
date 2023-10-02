@@ -1,5 +1,6 @@
 # Vocabulary bot FAQ
 
+## Check this out https://t.me/VocabularyImprove_bot
 
 [![Build Status](https://travis-ci.org/joemccann/dillinger.svg?branch=master)]()
 
