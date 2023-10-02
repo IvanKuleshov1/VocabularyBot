@@ -1,6 +1,9 @@
 # Vocabulary bot FAQ
 
-## Check this out https://t.me/VocabularyImprove_bot
+## Check this out [@VocabularyImprove_bot](https://t.me/VocabularyImprove_bot)
+
+## Протестировать бота вы можете по ссылке [@VocabularyImprove_bot](https://t.me/VocabularyImprove_bot)
+
 
 [![Build Status](https://travis-ci.org/joemccann/dillinger.svg?branch=master)]()
 
